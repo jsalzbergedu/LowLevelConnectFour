@@ -187,11 +187,3 @@ reset-board-chars
 
 \ Print the board
 : print-board cr 192 0 do i board-chars c@ retemit loop ;
-
-\ : reset-board 0 46 do 0 board i cells + ! loop ;
-
-
-\ \ Create our board & initialize its contents to 0s
-\ : board ( -- )
-\   \ There are 7 rows and 6 columns, so we need 7 * 6 = 42 cells in the array
-\   46 array board ;
