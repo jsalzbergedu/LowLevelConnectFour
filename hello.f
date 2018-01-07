@@ -348,8 +348,7 @@ xt-pointer out-of-bounds-branch-ptr
 : print-ui page print-board print-nav-keys instructions ;
 \ We can also chain lowest-empty-cell, user-select-column, & set-i-j
 \ as long as we have a word that always gets a valid row
-: drop2 drop drop ;
-: user-select-valid-row ( -- i j ) user-select-column lowest-empty-cell invert if drop2 recurse then ;
+: user-select-valid-row ( -- i j ) user-select-column lowest-empty-cell invert if 2drop recurse then ;
 \ And now we can finish the chain.
 : user-drop-game-token ( -- ) user-select-valid-row set-i-j ;
 \ One more element which we havent added yet -- the player switch
@@ -359,26 +358,25 @@ xt-pointer out-of-bounds-branch-ptr
 : game ( -- ) oneturn recurse ;
 
 \ Okay, time to add a way to scan for four in a rows.
-\ First, we can make a finite state machine with 4 states: 0, 1, 2, & 3, where 3 is the win condition.
+\ First, we can make a finite state machine with 5 states: 0, 1, 2, 3, & 4 is the win condition.
 \ It will need to have three ways to set it: increase and reset, as if the board has three tokens
-\ in a row of the same kind, it must go back from the state of 2 to the state of 0.
-\ Finally, if it only gets up to 1 or 2 by the end of the row, we want to reset it.
+\ in a row of the same kind, it must go back from the state of 3 to the state of 0.
 create scanforwin-fsm 1 cells allot
 : reset-scanforwin 0 scanforwin-fsm ! ;
 reset-scanforwin
+\ We want to be able to see our fsm
+: get-scanforwin ( -- n ) scanforwin-fsm @ ;
+\ But ofcourse, we only really care if scanforwin is 'win' or 'not win'
+: win-scanforwin? ( -- flag ) get-scanforwin 4 = if true else false then ;
 \ Reset if it is not quite a win
-: reset-scanforwin-branch ( -- ) scanforwin-fsm @ 3 < if reset-scanforwin then ;
+: reset-scanforwin-branch ( -- ) win-scanforwin? invert if reset-scanforwin then ;
 \ We don't want our fsm to go past 3, so incr-scanforwin can only increase it up to 3
-: incr-scanforwin ( -- ) scanforwin-fsm @ 3 < if 1 scanforwin-fsm +! then ;
+: incr-scanforwin ( -- ) win-scanforwin? invert if 1 scanforwin-fsm +! then ;
 \ And, as per the common usage, we want to either increase it or reset it depending on a
 \ boolean flag
 : incr-scanforwin-branch ( flag -- ) if incr-scanforwin else reset-scanforwin-branch then ;
-\ And finally, we want to be able to see our fsm
-: get-scanforwin ( -- n ) scanforwin-fsm @ ;
-\ But ofcourse, we only really care if scanforwin is 'win' or 'not win'
-: win-scanforwin? ( -- flag ) get-scanforwin 3 = if true else false then ;
-\ And later on, unfortunatley, we'll see that we have to jump straight to the win
-: win-scanforwin incr-scanforwin incr-scanforwin incr-scanforwin ;
+\ And later on, unfortunatley, we'll see that in some cases we have to jump straight to the win
+: win-scanforwin ( -- ) 4 0 do incr-scanforwin loop ;
 : win-scanforwin-branch ( flag -- ) if win-scanforwin else reset-scanforwin-branch then ;
 
 
@@ -391,13 +389,13 @@ reset-scanforwin
 				    i swap get-i-j = ( n j n j -- n j f )
 				    \ If it is equal, then start to increase the fsm. Else, start it over
 				    incr-scanforwin-branch ( n j f -- n j )
-				 loop drop2 ;
+				 loop 2drop ;
 : four-horz ( n -- ) 6 0 do dup i four-horz-row reset-scanforwin-branch loop drop ;
 
 : four-vert-column ( n i -- ) 6 0 do dup2 ( n i -- n i n i )
 				       i get-i-j = ( n i n i -- n i f)
 				       incr-scanforwin-branch ( n j f -- n j)
-				    loop drop2 ;
+				    loop 2drop ;
 
 : four-vert ( n -- ) 7 0 do dup i four-vert-column reset-scanforwin-branch loop drop ;
 
@@ -474,14 +472,14 @@ reset-scanforwin
 : a1+b1+ ( n n1 -- n2 n3 ) 1+ swap 1+ swap ; \ the \ direction
 \ So at this point, we could make a word like this :
 \ : four-pos-slope-at ( n i j -- ) 4 0 do dup2 get-i-j -rot ( n i j -- n n2 i j )
-\ 		    a1+b1- ( n n2 i j ) loop ( n n1 n2 n3 n4 i j ) drop2 ;
+\ 		    a1+b1- ( n n2 i j ) loop ( n n1 n2 n3 n4 i j ) 2drop ;
 \ But it might go off the edge. To prevent that, we can make n1 through n4 be zero 
 \ (because none of the tokens will be zero) if
 \ they are off the edge:
 : i-and-j-within-bottom? ( i j -- f) 5 <= swap 6 <= and ;
 : i-and-j-within-top? ( i j -- f ) 0 >= swap 0 >= and ;
 : i-and-j-within-bounds? ( i j -- f ) dup2 i-and-j-within-bottom? -rot i-and-j-within-top? and ;
-: get-i-j-or-zero-branch ( i j -- n ) dup2 i-and-j-within-bounds? if get-i-j else drop2 0 then ;
+: get-i-j-or-zero-branch ( i j -- n ) dup2 i-and-j-within-bounds? if get-i-j else 2drop 0 then ;
 : get-i-j-or-zero-branch-noconsume ( i j -- i j n ) dup2 get-i-j-or-zero-branch ;
 \ As we will see, we will also need a helper word that can take 5 numbers and check that they are
 \ all equal.
@@ -491,19 +489,18 @@ reset-scanforwin
 
 \ Now with that, we can write our diagonal scanner words
 : four-neg-slope-at ( n i j -- ) 4 0 do get-i-j-or-zero-branch-noconsume -rot ( n i j -- n n2 i j )
-					a1+b1+ ( n n2 ... n4 i1 j1 ) loop drop2
+					a1+b1+ ( n n2 ... n4 i1 j1 ) loop 2drop
 		    \ Now we have ( n n1 n2 n3 n4 ) on the stack. If they are all equal to n,
 		    \ they will all be equal to each other:
 		    five= win-scanforwin-branch  ;
-		    \ win-scanforwin-branch ;
 : four-neg-slope-column ( n i -- ) 6 0 do dup2 i ( n i -- n i n i j ) four-neg-slope-at ( n i ) loop
-			drop2 ;
+			2drop ;
 : four-neg-slope ( n -- ) 7 0 do dup i four-neg-slope-column ( n -- n ) loop drop ;
 : four-pos-slope-at ( n i j -- ) 4 0 do get-i-j-or-zero-branch-noconsume -rot ( n i j -- n n2 i j )
-					a1+b1- ( n n2 i1 j1 ) loop drop2
+					a1+b1- ( n n2 i1 j1 ) loop 2drop
 		    five=
 		    win-scanforwin-branch ;
-: four-pos-slope-column ( n i -- ) 6 0 do dup2 i four-pos-slope-at loop drop2 ;
+: four-pos-slope-column ( n i -- ) 6 0 do dup2 i four-pos-slope-at loop 2drop ;
 : four-pos-slope ( n -- ) 7 0 do dup i four-pos-slope-column loop drop ;
 
 \ Now we can wrap all those words up into one simple one:
@@ -514,4 +511,5 @@ reset-scanforwin
 \ Woohoo! Now we can make our real game loop:
 : oneturn ( -- ) print-ui user-drop-game-token scan-board-current-player-win ;
 : winui ( -- ) page ." Congratulations, player " print-player ." , you have won the game!" cr ;
-: game ( -- ) oneturn win-scanforwin? if winui else update-player-state recurse then ;
+: gamerec ( -- ) oneturn win-scanforwin? if winui else update-player-state recurse then ;
+: game ( -- ) reset-board gamerec ;
